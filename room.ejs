@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Chat Room</title>
+  <style>
+    body {
+      background-color: #121212;
+      color: white;
+      font-family: 'Segoe UI', sans-serif;
+      margin: 0;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+    }
+    .header {
+      padding: 15px;
+      text-align: center;
+      background: #1f1f1f;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.5);
+    }
+    #video-grid {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: center;
+      gap: 10px;
+      padding: 20px;
+      overflow-y: auto;
+      flex-grow: 1;
+    }
+    video {
+      width: 300px;
+      height: 225px;
+      object-fit: cover;
+      border-radius: 10px;
+      border: 2px solid #007bff;
+    }
+    .name-modal {
+      position: fixed;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,0.9);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      z-index: 100;
+    }
+    .modal-content {
+      background: #2c2c2c;
+      padding: 30px;
+      border-radius: 15px;
+      text-align: center;
+    }
+    input {
+      padding: 10px;
+      border-radius: 5px;
+      border: none;
+      width: 80%;
+      margin-bottom: 15px;
+    }
+    button {
+      padding: 10px 20px;
+      background: #007bff;
+      color: white;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+  </style>
+  <script>
+    const ROOM_ID = "<%= roomId %>";
+  </script>
+  <script src="https://unpkg.com/peerjs@1.4.7/dist/peerjs.min.js"></script>
+  <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+
+  <div class="name-modal" id="nameModal">
+    <div class="modal-content">
+      <h2>Enter Your Name</h2>
+      <input type="text" id="userNameInput" placeholder="Your Name...">
+      <br>
+      <button onclick="enterRoom()">Join Call</button>
+    </div>
+  </div>
+
+  <div class="header">
+    <h3>Video Chat Room</h3>
+  </div>
+  
+  <div id="video-grid"></div>
+
+  <script>
+    const socket = io('/');
+    const videoGrid = document.getElementById('video-grid');
+    let myPeer;
+    const myVideo = document.createElement('video');
+    myVideo.muted = true;
+    const peers = {};
+    let myName = '';
+
+    function enterRoom() {
+      const input = document.getElementById('userNameInput');
+      if(input.value.trim() === "") return alert("Please enter a name");
+      
+      myName = input.value;
+      document.getElementById('nameModal').style.display = 'none';
+      startConnection();
+    }
+
+    function startConnection() {
+      // Peer Server එකට connect වීම
+      myPeer = new Peer(undefined, {
+        path: '/peerjs',
+        host: '/',
+        port: '443' 
+      });
+
+      // කැමරාව සහ මයික්‍රොෆෝනය ලබා ගැනීම
+      navigator.mediaDevices.getUserMedia({
+        video: true,
+        audio: true
+      }).then(stream => {
+        addVideoStream(myVideo, stream);
+
+        // කවුරුහරි කතා කළාම answer කිරීම
+        myPeer.on('call', call => {
+          call.answer(stream);
+          const video = document.createElement('video');
+          call.on('stream', userVideoStream => {
+            addVideoStream(video, userVideoStream);
+          });
+        });
+
+        // අලුත් කෙනෙක් ආවම
+        socket.on('user-connected', (userId, userName) => {
+          connectToNewUser(userId, stream);
+          alert(`${userName} joined!`);
+        });
+      });
+
+      myPeer.on('open', id => {
+        socket.emit('join-room', ROOM_ID, id, myName);
+      });
+
+      socket.on('user-disconnected', userId => {
+        if (peers[userId]) peers[userId].close();
+      });
+    }
+
+    function connectToNewUser(userId, stream) {
+      const call = myPeer.call(userId, stream);
+      const video = document.createElement('video');
+      call.on('stream', userVideoStream => {
+        addVideoStream(video, userVideoStream);
+      });
+      call.on('close', () => {
+        video.remove();
+      });
+      peers[userId] = call;
+    }
+
+    function addVideoStream(video, stream) {
+      video.srcObject = stream;
+      video.addEventListener('loadedmetadata', () => {
+        video.play();
+      });
+      videoGrid.append(video);
+    }
+  </script>
+</body>
+</html>
+
